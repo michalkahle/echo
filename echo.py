@@ -51,9 +51,10 @@ well2welln_96 = partial(well2welln, form=96)
 well2welln_384 = partial(well2welln, form=384)
 well2welln_1536 = partial(well2welln, form=1536)
 
-def plot_picklist(picklist, form, fill='v', **kwargs):
-    for barcode, pl in picklist.groupby('s_plate'):
-        gg = plot_plate(pl, form, fill=fill, alpha=.5, **kwargs)
+def plot_picklist(picklist, form, fill='v', show='target', **kwargs):
+    plate = 't_plate' if show == 'target' else 's_plate'
+    for barcode, pl in picklist.groupby(plate):
+        gg = plot_plate(pl, form, fill=fill, alpha=.5, show=show, **kwargs)
         gg += p9.ggtitle(barcode)
         gg.draw()
 
