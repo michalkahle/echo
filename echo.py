@@ -52,6 +52,8 @@ well2welln_384 = partial(well2welln, form=384)
 well2welln_1536 = partial(well2welln, form=1536)
 
 def plot_picklist(picklist, form, fill='v', show='target', **kwargs):
+    if type(picklist) == str:
+        picklist = read_picklist(picklist)
     plate = 't_plate' if show == 'target' else 's_plate'
     for barcode, pl in picklist.groupby(plate):
         gg = plot_plate(pl, form, fill=fill, alpha=.5, show=show, **kwargs)
@@ -65,13 +67,15 @@ def write_picklist(df, fn):
     if 's_well' not in df.columns:
         # df['s_well'] = we don't know the format!
         pass
-    df[['s_plate', 's_well', 't_plate', 'v', 't_well']].to_csv(fn, header=None, line_terminator='\r\n', index=False)
+    (df[['s_plate', 's_well', 't_plate', 'v', 't_well']]
+        .to_csv(fn, header=None, line_terminator='\r\n', index=False))
 
 def read_survey(fn):
     tree = ET.parse(fn)
     root = tree.getroot()
     form = int(re.match('^\d+', root.attrib['name']).group())
-    ll = [{'well': child.attrib['n'], 'v': float(child.attrib['vl'])} for child in root]
+    ll = [{'well': child.attrib['n'], 'v': float(child.attrib['vl'])}
+        for child in root if float(child.attrib['vl']) > 0.0]
     df = pd.DataFrame(ll)
     df['welln'] = well2welln(df['well'], form)
     df['barcode'] = root.attrib['barcode']
@@ -86,13 +90,17 @@ def plot_survey_dir(directory):
 def plot_survey(survey):
     if type(survey) == str:
         survey = read_survey(survey)
-    form = survey['format'][0]
-    gg = plot_plate(survey, form=form, fill='v', discrete=False)
+    form = survey['format'].iloc[0]
+    cl = {1536:[0,6], 384:[0,None]}[form]
+
+    gg = plot_plate(survey, form=form, fill='v', discrete=False,
+                    color_limits=cl)
     if 'barcode' in survey.columns:
         gg += p9.ggtitle(survey.iloc[0]['barcode'])
     gg.draw()
 
-def plot_plate(df, form, fill='v', alpha=1, discrete=True, show='target'):
+def plot_plate(df, form, fill='v', alpha=1, discrete=True, show='target',
+                color_limits=[None, None]):
     df = df.copy()
     if form not in [96, 384, 1536]:
         raise ValueError('Only forms 96, 384 and 1536 supported.')
@@ -117,9 +125,12 @@ def plot_plate(df, form, fill='v', alpha=1, discrete=True, show='target'):
     gg = (p9.ggplot(df)
      + p9.aes('col', 'row', fill=fill)
      + p9.geom_tile(p9.aes(width=1, height=1), alpha=alpha)
-     + p9.geom_rect(p9.aes(xmin=.5, xmax=n_cols+.5, ymin=.5, ymax=n_rows+.5), color='black', fill=None)
-     + p9.scale_x_continuous(limits=(0.5, n_cols+.5), breaks=range(1, n_cols+1)) # minor_breaks=np.arange(1, n_cols+1)+.5
-     + p9.scale_y_reverse(limits=(0.5, n_rows+.5), breaks=range(1, n_rows+1), labels=labels)
+     + p9.geom_rect(p9.aes(xmin=.5, xmax=n_cols+.5, ymin=.5, ymax=n_rows+.5),
+        color='black', fill=None)
+     + p9.scale_x_continuous(limits=(0.5, n_cols+.5),
+        breaks=range(1, n_cols+1)) # minor_breaks=np.arange(1, n_cols+1)+.5
+     + p9.scale_y_reverse(limits=(0.5, n_rows+.5),
+        breaks=range(1, n_rows+1), labels=labels)
      + p9.coord_equal(expand=False)
      + p9.theme_minimal()
      + p9.theme(
@@ -134,7 +145,7 @@ def plot_plate(df, form, fill='v', alpha=1, discrete=True, show='target'):
     if discrete:
         gg += p9.scale_fill_discrete(l=.4, s=1, color_space='hls')
     else:
-        gg += p9.scale_fill_cmap(name='jet', limits=[0, 5])
+        gg += p9.scale_fill_cmap(name='jet', limits=color_limits)
     return gg
 
 def read_report_csv(fn):
@@ -162,37 +173,42 @@ def read_report_csv(fn):
     # return df
     return df[['s_well',  's_row', 's_col', 't_well', 't_row', 't_col', 'skip', 'composition', 'h_before', 'v', 'h_after']]
 
-def check_log_dir(directory):
+def check_log_dir(directory, fix=False):
     nn, nf = 0, 0
+    ll = []
     for fn in sorted(os.listdir(directory)):
         if fn.lower().endswith('_print.xml'):
             nn += 1
             failed = check_log(os.path.join(directory, fn))
             if failed:
-                print(fn)
+                ll += failed
+                if not fix:
+                    print(fn)
                 for fail in failed:
                     nf += 1
-                    print('{s_barcode} {s_well} -> {t_barcode}/{t_well} [{v:>4}nl] {reason}'.format(**fail))
+                    if not fix:
+                        print('{s_plate} {s_well} -> {t_plate}/{t_well} [{v:>4}nl] {reason}'.format(**fail))
+    if fix:
+        write_picklist(pd.DataFrame(ll), os.path.join(directory, 'fix_picklist.csv'))
     print('%i logs checked, %i failures.' % (nn, nf))
 
 def check_log(fn):
     ll = []
     tree = ET.parse(fn)
     root = tree.getroot()
-    s_barcode = root.find("./plateInfo/plate[@type='source']").attrib['barcode']
-    t_barcode = root.find("./plateInfo/plate[@type='destination']").attrib['barcode']
+    s_plate = root.find("./plateInfo/plate[@type='source']").attrib['barcode']
+    t_plate = root.find("./plateInfo/plate[@type='destination']").attrib['barcode']
     skippedwells = root.find('skippedwells')
     for el in skippedwells:
         ll.append({
-            's_barcode': s_barcode,
+            's_plate': s_plate,
             's_well': el.attrib['n'],
-            't_barcode': t_barcode,
+            't_plate': t_plate,
             't_well': el.attrib['dn'],
             'v': el.attrib['vt'],
             'reason': el.attrib['reason'],
         })
     return ll if len(ll) > 0 else None
-
 
 if __name__ == '__main__':
     pl3 = pd.DataFrame({'t_well':['A1', 'B2', 'H12'], 'v':[1,2,3]})
