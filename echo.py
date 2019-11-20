@@ -226,7 +226,7 @@ def check_log(fn):
         })
     return ll if len(ll) > 0 else None
 
-def check_source_volume(picklist, survey, plate=None):
+def check_source_volume(picklist, survey, plate=None, plot=True):
     if type(picklist) == str:
         picklist = read_picklist(picklist)
     if type(survey) == str:
@@ -245,19 +245,20 @@ def check_source_volume(picklist, survey, plate=None):
             raise ValueError('Surveyed plate is not on picklist.')
         elif not pl_plate and not sv_plate:
             raise ValueError('It is not clear which plate to check.')
-
-
-
-
-
     pl = (picklist.groupby(['s_well', 's_plate'])['v']
         .sum().reset_index()
-        .rename({'s_well': 'well', 'v':'vp'}, axis=1))
+        .rename({'s_well': 'well', 'v':'v_transfer'}, axis=1))
+    survey.rename({'v':'v_before'}, axis=1, inplace=True)
     res = survey.merge(pl)
-    res['vf'] = res['v'] - res['vp'] / 1000
+    res['plate'] = plate
+    res['v_transfer'] = res['v_transfer'] / 1000
+    res['v_after'] = res['v_before'] - res['v_transfer']
     form = survey['format'][0]
-    gg = plot_plate(res, form=form, fill='vf', discrete=False, limits=[0,1])
-    return gg + p9.ggtitle(plate)
+    if plot:
+        gg = plot_plate(res, form=form, fill='v_after', discrete=False, limits=[0,1])
+        (gg + p9.ggtitle(plate)).draw()
+
+    return res.query('v_after < 1')[['plate', 'well', 'v_before', 'v_transfer', 'v_after']]
 
 if __name__ == '__main__':
     pl3 = pd.DataFrame({'t_well':['A1', 'B2', 'H12'], 'v':[1,2,3]})
