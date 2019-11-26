@@ -186,7 +186,9 @@ def read_log_csv(fn):
     return df[['s_well',  's_row', 's_col', 't_well', 't_row', 't_col', 'skip',
             'composition', 'h_before', 'v', 'h_after']]
 
-def check_log_dir(directory, fix=False):
+def check_log_dir(directory, action='list'):
+    if action not in {'list', 'fix', 'plot'}:
+        raise ValueError('action can be `list` (default), `fix` or `plot`')
     nn, nf = 0, 0
     ll = []
     for fn in sorted(os.listdir(directory)):
@@ -195,18 +197,20 @@ def check_log_dir(directory, fix=False):
             failed = check_log(os.path.join(directory, fn))
             if failed:
                 ll += failed
-                if not fix:
+                if action == 'list':
                     print(fn)
                 for fail in failed:
                     nf += 1
-                    if not fix:
+                    if action == 'list':
                         print('{s_plate} {s_well} -> {t_plate}/{t_well} '
                             '[{v:>4}nl] {reason}'.format(**fail))
     print('%i logs checked, %i failures.' % (nn, nf))
-    if fix:
+    if action == 'fix':
         fix_fn = os.path.join(directory, 'fix_picklist.csv')
         write_picklist(pd.DataFrame(ll), fix_fn)
         print('Fix picklist created: ', fix_fn)
+    if action == 'plot':
+        plot_picklist(pd.DataFrame(ll), 1536, show='target')
 
 def check_log(fn):
     ll = []
