@@ -65,6 +65,8 @@ def plot_picklist(picklist, form, fill='v', show='target', **kwargs):
     elif show == 'targetsum':
         picklist = picklist.groupby(['t_well', 't_plate'])['v'].sum().reset_index()
         plate, show = 't_plate', 'target'
+    else:
+        raise ValueError('Parametr "show" must be in {source, target, sourcesum, targetsum}')
     for barcode, pl in picklist.groupby(plate):
         gg = plot_plate(pl, form, fill=fill, alpha=.5, show=show, **kwargs)
         gg += p9.ggtitle(barcode)
